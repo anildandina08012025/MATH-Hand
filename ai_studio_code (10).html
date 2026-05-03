@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hand-Tracking Math Lab</title>
+    
+    <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #6366f1;
+            --success: #22c55e;
+            --error: #ef4444;
+        }
+
+        body { 
+            margin: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f8fafc; 
+            overflow: hidden; 
+            touch-action: none;
+        }
+
+        /* Responsive UI Panel */
+        #ui {
+            position: absolute; 
+            top: 15px; 
+            left: 15px; 
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.95); 
+            padding: 15px; 
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
+            width: 200px;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        #target-display {
+            background: #f5f3ff; 
+            border: 2px solid var(--primary);
+            padding: 10px; 
+            border-radius: 12px; 
+            text-align: center; 
+            margin-bottom: 10px;
+        }
+
+        .math-text {
+            text-align: center;
+            font-weight: 800;
+            font-size: 1.1rem;
+            color: var(--primary);
+        }
+
+        /* Small Video Preview for User Feedback */
+        #video-container {
+            position: absolute; 
+            top: 15px; 
+            right: 15px;
+            width: 120px; 
+            height: 90px; 
+            border: 2px solid var(--primary);
+            border-radius: 12px; 
+            overflow: hidden; 
+            background: #000; 
+            transform: scaleX(-1);
+            z-index: 50;
+        }
+        video { width: 100%; height: 100%; object-fit: cover; }
+
+        canvas#main-canvas { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+        }
+
+        /* Initial Start Screen */
+        #start-overlay {
+            position: fixed; 
+            inset: 0; 
+            background: white;
+            z-index: 2000; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .btn-start {
+            padding: 18px 40px; 
+            font-size: 1.3rem; 
+            background: var(--primary); 
+            color: white; 
+            border: none; 
+            border-radius: 50px; 
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        }
+
+        #hand-status {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 100;
+        }
+        .detected { background: #dcfce7; color: #16a34a; }
+        .lost { background: #fee2e2; color: #ef4444; }
+
+        button.reset-btn {
+            width: 100%;
+            background: #fff;
+            border: 1px solid #ddd;
+            padding: 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="start-overlay">
+        <h1 style="color: #1e1b4b; margin-bottom: 10px;">Prime Builder Lab</h1>
+        <p style="color: #64748b; margin-bottom: 30px;">
+            1. Prop your device up.<br>
+            2. Pinch index & thumb to grab prime bricks.<br>
+            3. Drop them in the center box to multiply!
+        </p>
+        <button class="btn-start" onclick="initApp()">START CAMERA</button>
+    </div>
+
+    <div id="hand-status" class="lost">HAND NOT DETECTED</div>
+
+    <div id="ui">
+        <div id="target-display">
+            <div style="font-size: 0.7rem; font-weight: bold; color: #4338ca;">TARGET NUMBER</div>
+            <div id="target-num" style="font-size: 2.2rem; font-weight: 900; color: #1e1b4b;">12</div>
+        </div>
+        <div class="math-text">
+            <span id="math-string">?</span> = <span id="math-total">0</span>
+        </div>
+        <button class="reset-btn" onclick="resetLab()">Reset Level</button>
+    </div>
+
+    <div id="video-container">
+        <video id="input_video" playsinline></video>
+    </div>
+
+    <canvas id="main-canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('main-canvas');
+        const ctx = canvas.getContext('2d');
+        const videoElement = document.getElementById('input_video');
+        const statusEl = document.getElementById('hand-status');
+
+        let targetNum = 12;
+        let collectedFactors = [];
+        let bricks = [];
+        let grabbedBrick = null;
+        let isPinching = false;
+        let hX = 0, hY = 0;
+
+        // Configuration
+        const boxSize = { w: 220, h: 180 };
+        const primePool = [2, 3, 5];
+        const brickColors = { 2: '#ef4444', 3: '#3b82f6', 5: '#10b981' };
+
+        function initBricks() {
+            bricks = [];
+            for (let i = 0; i < 6; i++) {
+                const val = primePool[i % 3];
+                bricks.push({
+                    val: val,
+                    x: 50 + Math.random() * (window.innerWidth - 100),
+                    y: window.innerHeight - 80 - (Math.random() * 60),
+                    color: brickColors[val],
+                    size: 50
+                });
+            }
+        }
+
+        function resetLab() {
+            collectedFactors = [];
+            document.getElementById('math-string').innerText = "?";
+            document.getElementById('math-total').innerText = "0";
+            initBricks();
+        }
+
+        async function initApp() {
+            document.getElementById('start-overlay').style.display = 'none';
+            initBricks();
+            
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 0, // Faster for mobile
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onResults);
+
+            try {
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => { await hands.send({ image: videoElement }); },
+                    facingMode: 'user',
+                    width: 480, height: 640
+                });
+                await camera.start();
+            } catch (e) {
+                alert("Camera Error: Please ensure you are using HTTPS and have granted camera permissions.");
+            }
+        }
+
+        function onResults(results) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 1. Draw Drop Zone (Center)
+            const bx = window.innerWidth / 2 - boxSize.w / 2;
+            const by = window.innerHeight / 2 - boxSize.h / 2;
+            
+            ctx.fillStyle = "rgba(99, 102, 241, 0.05)";
+            ctx.fillRect(bx, by, boxSize.w, boxSize.h);
+            ctx.strokeStyle = "#6366f1";
+            ctx.setLineDash([8, 4]);
+            ctx.lineWidth = 2;
+            ctx.strokeRect(bx, by, boxSize.w, boxSize.h);
+            ctx.setLineDash([]);
+            
+            ctx.fillStyle = "#6366f1";
+            ctx.font = "bold 12px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("DROP HERE", window.innerWidth/2, by + boxSize.h/2 + 5);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                statusEl.innerText = "HAND DETECTED";
+                statusEl.className = "detected";
+
+                const landmarks = results.multiHandLandmarks[0];
+                // Mirror X for intuitive control
+                hX = (1 - landmarks[8].x) * canvas.width;
+                hY = landmarks[8].y * canvas.height;
+
+                // Pinch Calculation (Distance index tip [8] to thumb tip [4])
+                const d = Math.hypot(landmarks[8].x - landmarks[4].x, landmarks[8].y - landmarks[4].y);
+                isPinching = d < 0.07;
+
+                if (isPinching) {
+                    if (!grabbedBrick) {
+                        bricks.forEach(b => {
+                            if (Math.hypot(hX - b.x, hY - b.y) < 40) grabbedBrick = b;
+                        });
+                    }
+                } else {
+                    if (grabbedBrick) {
+                        // Check drop
+                        if (hX > bx && hX < bx + boxSize.w && hY > by && hY < by + boxSize.h) {
+                            processDrop(grabbedBrick.val);
+                        }
+                    }
+                    grabbedBrick = null;
+                }
+
+                if (grabbedBrick) {
+                    grabbedBrick.x = hX;
+                    grabbedBrick.y = hY;
+                }
+
+                // Cursor
+                ctx.fillStyle = isPinching ? "rgba(239, 68, 68, 0.7)" : "rgba(99, 102, 241, 0.7)";
+                ctx.beginPath(); ctx.arc(hX, hY, 12, 0, Math.PI*2); ctx.fill();
+            } else {
+                statusEl.innerText = "SEARCHING FOR HAND...";
+                statusEl.className = "lost";
+            }
+
+            // Draw Bricks
+            bricks.forEach(b => {
+                ctx.fillStyle = b.color;
+                ctx.beginPath(); ctx.roundRect(b.x - 25, b.y - 25, 50, 50, 10); ctx.fill();
+                ctx.fillStyle = "white"; ctx.font = "bold 20px sans-serif";
+                ctx.textAlign = "center"; ctx.fillText(b.val, b.x, b.y + 7);
+            });
+        }
+
+        function processDrop(val) {
+            collectedFactors.push(val);
+            let total = collectedFactors.reduce((a, b) => a * b, 1);
+            document.getElementById('math-string').innerText = collectedFactors.join(" × ");
+            document.getElementById('math-total').innerText = total;
+
+            if (total === targetNum) {
+                confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+                setTimeout(() => { 
+                    const levels = [12, 18, 20, 24, 30];
+                    targetNum = levels[Math.floor(Math.random() * levels.length)];
+                    document.getElementById('target-num').innerText = targetNum;
+                    resetLab(); 
+                }, 1500);
+            } else if (total > targetNum) {
+                alert("Too high! Try again.");
+                resetLab();
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    </script>
+</body>
+</html>
