@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Interactive Science Lab - Conductors</title>
+
+    <!-- Core Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Student-Friendly Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        body { 
+            margin: 0; overflow: hidden; background: #f0f4f8; 
+            font-family: 'Nunito', sans-serif; color: #333; touch-action: none;
+        }
+
+        /* Glassmorphism UI */
+        .ui-panel {
+            position: absolute; z-index: 100;
+            background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px);
+            border: 2px solid white; border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08); padding: 20px;
+        }
+
+        /* Top Left: Concept & Instructions */
+        #lesson-info { top: 20px; left: 20px; width: 320px; border-top: 6px solid #3b82f6; }
+        #lesson-info h1 { margin: 0 0 5px 0; font-size: 1.8rem; color: #1e3a8a; font-weight: 900; }
+        #lesson-info p { margin: 0; font-size: 1rem; color: #475569; font-weight: 700; }
+
+        .controls-guide { 
+            margin-top: 15px; background: #e0e7ff; padding: 12px; 
+            border-radius: 12px; font-size: 0.9rem; color: #1e3a8a; font-weight: 700;
+        }
+        .controls-guide span.right { color: #059669; }
+        .controls-guide span.left { color: #ea580c; }
+
+        /* Fallback Button */
+        .btn-swap {
+            width: 100%; margin-top: 15px; padding: 12px; border-radius: 12px; border: none;
+            background: #3b82f6; color: white; font-family: 'Nunito'; font-weight: 900;
+            cursor: pointer; transition: 0.2s; font-size: 1rem; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+        }
+        .btn-swap:hover { background: #2563eb; transform: translateY(-2px); }
+
+        /* Bottom Left: Live Data */
+        #telemetry { bottom: 20px; left: 20px; width: 320px; font-size: 0.95rem; }
+        .telemetry-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 2px dashed #e2e8f0; padding-bottom: 4px;}
+        .telemetry-val { font-weight: 900; }
+        .text-flow { color: #059669; } /* Green */
+        .text-stop { color: #ef4444; } /* Red */
+        .text-lit { color: #eab308; } /* Yellow */
+
+        /* Top Right: Camera Preview & Status */
+        #camera-feed {
+            position: absolute; top: 20px; right: 20px; z-index: 100;
+            display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+        }
+        #video-container {
+            width: 160px; height: 120px; border: 4px solid white; border-radius: 16px;
+            overflow: hidden; transform: scaleX(-1); box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        
+        .hand-badge {
+            padding: 8px 16px; border-radius: 20px; font-weight: 900; font-size: 0.85rem;
+            background: white; box-shadow: 0 4px 10px rgba(0,0,0,0.1); transition: 0.3s;
+        }
+        .active-right { color: #059669; border: 2px solid #059669; }
+        .active-left { color: #ea580c; border: 2px solid #ea580c; }
+        .inactive { color: #94a3b8; border: 2px solid #cbd5e1; }
+
+        /* Startup Screen */
+        #start-screen {
+            position: fixed; inset: 0; background: #f0f4f8; z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+        }
+        .btn-start {
+            margin-top: 30px; padding: 15px 40px; font-size: 1.5rem; font-weight: 900;
+            background: #3b82f6; color: white; border: none;
+            border-radius: 50px; cursor: pointer; transition: 0.3s; box-shadow: 0 10px 25px rgba(59, 130, 246, 0.4);
+        }
+        .btn-start:hover { background: #1e40af; transform: scale(1.05); }
+        
+        /* 3D Canvas */
+        #main-canvas { position: absolute; top: 0; left: 0; z-index: 10; width: 100%; height: 100%; }
+
+        /* Mobile Layout Adjustments */
+        @media (max-width: 768px) {
+            #lesson-info { width: 55%; top: 10px; left: 10px; padding: 15px; }
+            #telemetry { width: 85%; left: 5%; bottom: 10px; padding: 15px; }
+            #camera-feed { top: 10px; right: 10px; }
+            #video-container { width: 100px; height: 75px; border-width: 2px; }
+            #start-screen h1 { font-size: 2.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- START SCREEN -->
+    <div id="start-screen">
+        <h1 style="color: #1e3a8a; margin-bottom: 10px;">The Electricity Lab</h1>
+        <p style="color: #3b82f6; font-size: 1.2rem; font-weight: 700; max-width: 500px;">Learn how different materials allow or block the flow of electrons!</p>
+        <button class="btn-start" onclick="startApp()">Enter Virtual Lab</button>
+    </div>
+
+    <!-- UI PANELS -->
+    <div id="lesson-info" class="ui-panel">
+        <h1>Conductors vs Insulators</h1>
+        <p>Observe the flow of electrons.</p>
+        <div class="controls-guide">
+            <span class="right">✋ Right Hand:</span> Move to Rotate & Zoom<br>
+            <span class="left">🤏 Left Hand:</span> Pinch to Swap Material
+        </div>
+        <button class="btn-swap" onclick="swapMaterial()">Swap Material (Click)</button>
+    </div>
+
+    <div id="telemetry" class="ui-panel">
+        <div style="text-align: center; font-weight: 900; margin-bottom: 10px; color:#1e3a8a; font-size: 1.1rem;">LABORATORY DATA</div>
+        <div class="telemetry-row"><span>Material:</span><span class="telemetry-val" id="t-mat">COPPER</span></div>
+        <div class="telemetry-row"><span>Type:</span><span class="telemetry-val text-flow" id="t-type">CONDUCTOR</span></div>
+        <div class="telemetry-row"><span>Electrons:</span><span class="telemetry-val text-flow" id="t-flow">FLOWING</span></div>
+        <div class="telemetry-row"><span>Light Bulb:</span><span class="telemetry-val text-lit" id="t-bulb">LIT (ON)</span></div>
+    </div>
+
+    <!-- CAMERA PREVIEW & STATUS -->
+    <div id="camera-feed">
+        <div id="video-container">
+            <video id="input_video" playsinline muted autoplay></video>
+        </div>
+        <div id="status-right" class="hand-badge inactive">Right Hand (Rotate)</div>
+        <div id="status-left" class="hand-badge inactive">Left Hand (Swap)</div>
+    </div>
+
+    <!-- 3D CANVAS -->
+    <canvas id="main-canvas"></canvas>
+
+    <script>
+        /** --- 1. MATERIALS DATA (Student Friendly) --- **/
+        const materials =[
+            { name: "COPPER", type: "CONDUCTOR", color: 0xeb7a53, flowSpeed: 0.06, bulbOn: true },
+            { name: "PLASTIC", type: "INSULATOR", color: 0x3b82f6, flowSpeed: 0, bulbOn: false }, // Bright Blue Plastic
+            { name: "GOLD", type: "CONDUCTOR", color: 0xfacc15, flowSpeed: 0.08, bulbOn: true },   // Bright Yellow Gold
+            { name: "WOOD", type: "INSULATOR", color: 0xa16207, flowSpeed: 0, bulbOn: false }      // Warm Wood
+        ];
+        let matIndex = 0;
+
+        /** --- 2. THREE.JS SCENE SETUP --- **/
+        const canvas = document.getElementById('main-canvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f4f8);
+
+        // Position camera to center the model perfectly
+        const camera = new THREE.PerspectiveCamera(40, window.innerWidth/window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 3, 22);
+        camera.lookAt(0, -1, 0);
+
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+
+        const circuitGroup = new THREE.Group();
+        scene.add(circuitGroup);
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight.position.set(5, 15, 10);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // Floor (for nice shadows)
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0xf0f4f8, depthWrite: false }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -6;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        /** --- 3. BUILD THE CIRCUIT (Cartoon/Attractive Style) --- **/
+        const wireRadius = 6.5;
+        
+        // Wire
+        const wire = new THREE.Mesh(
+            new THREE.TorusGeometry(wireRadius, 0.4, 16, 100, Math.PI * 1.7),
+            new THREE.MeshStandardMaterial({ color: 0xb4c6df, metalness: 0.3, roughness: 0.5 })
+        );
+        wire.rotation.x = Math.PI / 2;
+        wire.rotation.z = -Math.PI * 0.85; 
+        wire.castShadow = true;
+        circuitGroup.add(wire);
+
+        // The Test Material Block (Front)
+        const block = new THREE.Mesh(
+            new THREE.BoxGeometry(3, 1.5, 1.5),
+            new THREE.MeshStandardMaterial({ color: materials[0].color, metalness: 0.3, roughness: 0.4 })
+        );
+        block.position.set(0, 0, wireRadius);
+        block.castShadow = true;
+        circuitGroup.add(block);
+
+        // Cartoon Light Bulb (Back)
+        const bulbGroup = new THREE.Group();
+        bulbGroup.position.set(0, 0, -wireRadius);
+        
+        const bulbBase = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.5, 1.2, 16), new THREE.MeshStandardMaterial({ color: 0x94a3b8 }));
+        bulbBase.position.y = -1;
+        bulbGroup.add(bulbBase);
+
+        const bulbGlassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfacc15, emissiveIntensity: 1 });
+        const bulbGlass = new THREE.Mesh(new THREE.SphereGeometry(1.5, 32, 32), bulbGlassMat);
+        bulbGroup.add(bulbGlass);
+        
+        const bulbLight = new THREE.PointLight(0xfacc15, 1.5, 20);
+        bulbGroup.add(bulbLight);
+        circuitGroup.add(bulbGroup);
+
+        // Student-Friendly Battery (Right side)
+        const batteryGroup = new THREE.Group();
+        batteryGroup.position.set(wireRadius, 0, 0);
+        batteryGroup.rotation.x = Math.PI / 2;
+
+        const batBody = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 3, 32), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
+        batteryGroup.add(batBody);
+        const batTop = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.5, 32), new THREE.MeshStandardMaterial({ color: 0xef4444 })); // Red (+)
+        batTop.position.y = 1.75;
+        batteryGroup.add(batTop);
+        const batNub = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16), new THREE.MeshStandardMaterial({ color: 0x94a3b8 }));
+        batNub.position.y = 2.15;
+        batteryGroup.add(batNub);
+        circuitGroup.add(batteryGroup);
+
+        // Bright Glowing Electrons
+        const electronCount = 35;
+        const electrons =[];
+        const eMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, emissive: 0x06b6d4, emissiveIntensity: 0.8 }); // Bright Cyan
+        
+        for(let i = 0; i < electronCount; i++) {
+            const e = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), eMat);
+            e.userData.angle = (i / electronCount) * Math.PI * 2;
+            circuitGroup.add(e);
+            electrons.push(e);
+        }
+
+        /** --- 4. MATERIAL SWAP LOGIC --- **/
+        function swapMaterial() {
+            matIndex = (matIndex + 1) % materials.length;
+            const mat = materials[matIndex];
+
+            // 3D Updates
+            block.material.color.setHex(mat.color);
+            if (mat.bulbOn) {
+                bulbGlassMat.emissive.setHex(0xfacc15); // Yellow glow
+                bulbGlassMat.emissiveIntensity = 1;
+                bulbLight.intensity = 1.5;
+                eMat.color.setHex(0x06b6d4); // Cyan electrons
+                eMat.emissive.setHex(0x06b6d4);
+            } else {
+                bulbGlassMat.emissive.setHex(0x94a3b8); // Grey/Off
+                bulbGlassMat.emissiveIntensity = 0.2;
+                bulbLight.intensity = 0;
+                eMat.color.setHex(0x64748b); // Dull electrons
+                eMat.emissive.setHex(0x000000);
+            }
+
+            // UI Updates
+            document.getElementById('t-mat').innerText = mat.name;
+            
+            const elType = document.getElementById('t-type');
+            elType.innerText = mat.type;
+            elType.className = "telemetry-val " + (mat.type === "CONDUCTOR" ? "text-flow" : "text-stop");
+            
+            const elFlow = document.getElementById('t-flow');
+            elFlow.innerText = mat.bulbOn ? "FLOWING RAPIDLY" : "STOPPED (BLOCKED)";
+            elFlow.className = "telemetry-val " + (mat.bulbOn ? "text-flow" : "text-stop");
+            
+            const elBulb = document.getElementById('t-bulb');
+            elBulb.innerText = mat.bulbOn ? "LIT (ON)" : "DARK (OFF)";
+            elBulb.className = "telemetry-val " + (mat.bulbOn ? "text-lit" : "text-stop");
+        }
+
+        /** --- 5. TWO-HANDED MEDIAPIPE TRACKING --- **/
+        const videoElement = document.getElementById('input_video');
+        
+        // Initial setup centers the model perfectly
+        let targetRotX = Math.PI / 8, targetRotY = -Math.PI / 8;
+        let targetScale = 1.2, currentScale = 1.2;
+        let lastSwapTime = 0;
+
+        async function startApp() {
+            document.getElementById('start-screen').style.display = 'none';
+
+            const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+            hands.setOptions({ 
+                maxNumHands: 2, // ENABLE TWO HANDS
+                modelComplexity: 1, 
+                minDetectionConfidence: 0.6, 
+                minTrackingConfidence: 0.6 
+            });
+            hands.onResults(onResults);
+
+            try {
+                const cameraFeed = new Camera(videoElement, {
+                    onFrame: async () => { await hands.send({ image: videoElement }); },
+                    facingMode: 'user', width: 640, height: 480
+                });
+                await cameraFeed.start();
+            } catch(e) {
+                alert("Camera Error: Please use HTTPS and allow camera access.");
+            }
+        }
+
+        function onResults(results) {
+            // Reset UI Badges
+            document.getElementById('status-right').className = "hand-badge inactive";
+            document.getElementById('status-left').className = "hand-badge inactive";
+
+            if (results.multiHandLandmarks && results.multiHandedness) {
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const hand = results.multiHandLandmarks[i];
+                    // Note: Mirrored camera means physical Right hand is labeled "Left" by MediaPipe
+                    const isRightHand = results.multiHandedness[i].label === "Left"; 
+                    
+                    const wrist = hand[0];
+                    const thumb = hand[4];
+                    const index = hand[8];
+
+                    if (isRightHand) {
+                        // --- RIGHT HAND: ROTATE & ZOOM ---
+                        document.getElementById('status-right').className = "hand-badge active-right";
+                        
+                        // Rotates based on position of hand in frame (comfortable offset)
+                        targetRotY = -(wrist.x - 0.5) * 2;  
+                        targetRotX = (wrist.y - 0.6) * 2; // 0.6 allows hand to rest lower
+
+                        // Zoom via Right Hand Pinch
+                        const zoomDist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+                        let scale = (zoomDist - 0.05) * (2.0 - 0.8) / (0.3 - 0.05) + 0.8;
+                        targetScale = Math.max(0.8, Math.min(scale, 2.0));
+
+                    } else {
+                        // --- LEFT HAND: PINCH TO SWAP MATERIAL ---
+                        document.getElementById('status-left').className = "hand-badge active-left";
+                        
+                        const pinchDist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+                        
+                        // If pinched and cooldown has passed
+                        if (pinchDist < 0.07 && (Date.now() - lastSwapTime > 1000)) {
+                            swapMaterial();
+                            lastSwapTime = Date.now();
+                            
+                            // Visual feedback on the left badge
+                            document.getElementById('status-left').style.background = "#ea580c";
+                            document.getElementById('status-left').style.color = "#fff";
+                            setTimeout(() => { 
+                                document.getElementById('status-left').style.background = "white"; 
+                                document.getElementById('status-left').style.color = "#ea580c"; 
+                            }, 300);
+                        }
+                    }
+                }
+            } else {
+                // Idle Animation if no hands present
+                targetRotY -= 0.002;
+            }
+        }
+
+        /** --- 6. PHYSICS & ANIMATION LOOP --- **/
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const activeMat = materials[matIndex];
+
+            // Electron Flow Logic
+            electrons.forEach((e) => {
+                if (activeMat.flowSpeed > 0) {
+                    e.userData.angle -= activeMat.flowSpeed; // Flow
+                }
+                // Calculate circular track position
+                e.position.x = Math.cos(e.userData.angle) * wireRadius;
+                e.position.z = Math.sin(e.userData.angle) * wireRadius;
+            });
+
+            // Smooth Interpolation for Camera tracking
+            circuitGroup.rotation.y += (targetRotY - circuitGroup.rotation.y) * 0.1;
+            circuitGroup.rotation.x += (targetRotX - circuitGroup.rotation.x) * 0.1;
+            
+            currentScale += (targetScale - currentScale) * 0.1;
+            circuitGroup.scale.set(currentScale, currentScale, currentScale);
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Responsive handling
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
