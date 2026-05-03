@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Mobile Science Lab</title>
+
+    <!-- Core Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;800;900&display=swap" rel="stylesheet">
+
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body { 
+            margin: 0; overflow: hidden; background: #e2e8f0; 
+            font-family: 'Nunito', sans-serif; color: #1e293b; touch-action: none;
+        }
+
+        /* 3D Canvas */
+        #main-canvas { position: absolute; top: 0; left: 0; z-index: 10; width: 100vw; height: 100vh; }
+
+        /* Top Header Area */
+        #top-bar {
+            position: absolute; top: 0; left: 0; width: 100%; z-index: 100;
+            padding: 15px 20px; padding-top: env(safe-area-inset-top, 20px);
+            display: flex; justify-content: space-between; align-items: flex-start;
+            pointer-events: none; 
+        }
+
+        .title-area { pointer-events: auto; }
+        .title-area h1 { margin: 0; font-size: 1.5rem; font-weight: 900; color: #0f172a; text-shadow: 0 2px 10px white; }
+        .title-area p { margin: 0; font-size: 0.9rem; font-weight: 800; color: #3b82f6; }
+
+        /* Camera Preview */
+        #video-container {
+            width: 80px; height: 80px; border: 3px solid white; border-radius: 50%;
+            overflow: hidden; transform: scaleX(-1); box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            background: #000; pointer-events: auto; position: relative;
+        }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        
+        #cam-status {
+            position: absolute; bottom: 5px; right: 5px; width: 15px; height: 15px; 
+            border-radius: 50%; border: 2px solid white; background: #ef4444; z-index: 110;
+        }
+        .cam-active { background: #22c55e !important; }
+
+        /* Bottom App Dock */
+        #bottom-dock {
+            position: absolute; bottom: 0; left: 0; width: 100%; z-index: 100;
+            background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(15px);
+            border-top-left-radius: 25px; border-top-right-radius: 25px;
+            padding: 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column; gap: 15px;
+        }
+
+        .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .data-card { background: #f8fafc; padding: 10px; border-radius: 12px; text-align: center; border: 1px solid #e2e8f0; }
+        .data-label { font-size: 0.75rem; color: #64748b; font-weight: 800; text-transform: uppercase; }
+        .data-value { font-size: 1.1rem; font-weight: 900; margin-top: 2px; }
+
+        .text-flow { color: #059669; }
+        .text-stop { color: #ef4444; }
+
+        /* Big Mobile-Friendly Button */
+        .btn-swap {
+            width: 100%; padding: 15px; border-radius: 15px; border: none;
+            background: linear-gradient(135deg, #3b82f6, #2563eb); color: white;
+            font-family: 'Nunito'; font-weight: 900; font-size: 1.1rem;
+            cursor: pointer; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+            transition: 0.2s;
+        }
+        .btn-swap:active { transform: scale(0.97); }
+
+        /* Mobile Startup Screen */
+        #start-screen {
+            position: fixed; inset: 0; background: #f8fafc; z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;
+        }
+        .start-icon { font-size: 4rem; margin-bottom: 10px; }
+        .start-btn {
+            margin-top: 30px; padding: 18px 40px; font-size: 1.3rem; font-weight: 900; width: 90%; max-width: 350px;
+            background: #3b82f6; color: white; border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- START SCREEN -->
+    <div id="start-screen">
+        <div class="start-icon">⚡</div>
+        <h1 style="color: #0f172a; margin-bottom: 10px; font-size: 2.2rem;">Electricity Lab</h1>
+        <p style="color: #475569; font-size: 1rem; font-weight: 800; margin-bottom: 20px;">
+            <span style="color:#059669;">Right Hand:</span> Move to Rotate, Pinch to Zoom<br>
+            <span style="color:#ea580c;">Left Hand:</span> Pinch to Swap Material
+        </p>
+        <button class="start-btn" onclick="startApp()">Open Camera</button>
+    </div>
+
+    <!-- TOP HEADER -->
+    <div id="top-bar">
+        <div class="title-area">
+            <h1>Circuit Lab</h1>
+            <p>Conductors & Insulators</p>
+        </div>
+        <div id="video-container">
+            <video id="input_video" playsinline muted autoplay></video>
+            <div id="cam-status"></div>
+        </div>
+    </div>
+
+    <!-- 3D CANVAS -->
+    <canvas id="main-canvas"></canvas>
+
+    <!-- BOTTOM APP DOCK -->
+    <div id="bottom-dock">
+        <div class="data-grid">
+            <div class="data-card">
+                <div class="data-label">Material</div>
+                <div class="data-value" id="t-mat" style="color: #ea580c;">COPPER</div>
+            </div>
+            <div class="data-card">
+                <div class="data-label">Type</div>
+                <div class="data-value text-flow" id="t-type">CONDUCTOR</div>
+            </div>
+            <div class="data-card">
+                <div class="data-label">Electrons</div>
+                <div class="data-value text-flow" id="t-flow">FLOWING</div>
+            </div>
+            <div class="data-card">
+                <div class="data-label">Light Bulb</div>
+                <div class="data-value text-flow" id="t-bulb" style="color: #eab308;">LIT (ON)</div>
+            </div>
+        </div>
+        
+        <button class="btn-swap" onclick="swapMaterial()">🔄 Swap Material (Touch / Left Pinch)</button>
+    </div>
+
+    <script>
+        /** --- 1. MATERIALS DATA --- **/
+        const materials =[
+            { name: "COPPER", type: "CONDUCTOR", color: 0xeb7a53, flowSpeed: 0.05, bulbOn: true },
+            { name: "PLASTIC", type: "INSULATOR", color: 0x3b82f6, flowSpeed: 0, bulbOn: false }, 
+            { name: "GOLD", type: "CONDUCTOR", color: 0xfacc15, flowSpeed: 0.07, bulbOn: true },   
+            { name: "WOOD", type: "INSULATOR", color: 0x8b5a2b, flowSpeed: 0, bulbOn: false }      
+        ];
+        let matIndex = 0;
+
+        /** --- 2. THREE.JS MOBILE SCENE SETUP --- **/
+        const canvas = document.getElementById('main-canvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xe2e8f0);
+
+        const isMobile = window.innerWidth < 600;
+        const cameraZ = isMobile ? 32 : 24; 
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 2, cameraZ);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+        renderer.shadowMap.enabled = true;
+
+        const circuitGroup = new THREE.Group();
+        circuitGroup.position.y = isMobile ? 2 : 0; 
+        scene.add(circuitGroup);
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight.position.set(5, 15, 10);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // Floor
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, depthWrite: false }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -6;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        /** --- 3. BUILD THE CIRCUIT --- **/
+        const wireRadius = 6.5;
+        
+        const wire = new THREE.Mesh(
+            new THREE.TorusGeometry(wireRadius, 0.5, 12, 60, Math.PI * 1.7),
+            new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.2, roughness: 0.5 })
+        );
+        wire.rotation.x = Math.PI / 2;
+        wire.rotation.z = -Math.PI * 0.85; 
+        wire.castShadow = true;
+        circuitGroup.add(wire);
+
+        const block = new THREE.Mesh(
+            new THREE.BoxGeometry(3, 1.5, 1.8),
+            new THREE.MeshStandardMaterial({ color: materials[0].color, metalness: 0.2, roughness: 0.5 })
+        );
+        block.position.set(0, 0, wireRadius);
+        block.castShadow = true;
+        circuitGroup.add(block);
+
+        const bulbGroup = new THREE.Group();
+        bulbGroup.position.set(0, 0, -wireRadius);
+        
+        const bulbBase = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.5, 1.2, 16), new THREE.MeshStandardMaterial({ color: 0x64748b }));
+        bulbBase.position.y = -1;
+        bulbGroup.add(bulbBase);
+
+        const bulbGlassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfacc15, emissiveIntensity: 1 });
+        const bulbGlass = new THREE.Mesh(new THREE.SphereGeometry(1.5, 24, 24), bulbGlassMat);
+        bulbGroup.add(bulbGlass);
+        
+        const bulbLight = new THREE.PointLight(0xfacc15, 1.5, 20);
+        bulbGroup.add(bulbLight);
+        circuitGroup.add(bulbGroup);
+
+        const batteryGroup = new THREE.Group();
+        batteryGroup.position.set(wireRadius, 0, 0);
+        batteryGroup.rotation.x = Math.PI / 2;
+
+        const batBody = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 3, 24), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
+        batteryGroup.add(batBody);
+        const batTop = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.5, 24), new THREE.MeshStandardMaterial({ color: 0xef4444 })); 
+        batTop.position.y = 1.75;
+        batteryGroup.add(batTop);
+        circuitGroup.add(batteryGroup);
+
+        const electronCount = 25; 
+        const electrons =[];
+        const eMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, emissive: 0x06b6d4, emissiveIntensity: 0.8 }); 
+        
+        for(let i = 0; i < electronCount; i++) {
+            const e = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 12), eMat);
+            e.userData.angle = (i / electronCount) * Math.PI * 2;
+            circuitGroup.add(e);
+            electrons.push(e);
+        }
+
+        /** --- 4. SWAP LOGIC --- **/
+        function swapMaterial() {
+            matIndex = (matIndex + 1) % materials.length;
+            const mat = materials[matIndex];
+
+            block.material.color.setHex(mat.color);
+            if (mat.bulbOn) {
+                bulbGlassMat.emissive.setHex(0xfacc15); 
+                bulbGlassMat.emissiveIntensity = 1;
+                bulbLight.intensity = 1.5;
+                eMat.color.setHex(0x06b6d4); 
+                eMat.emissive.setHex(0x06b6d4);
+            } else {
+                bulbGlassMat.emissive.setHex(0x64748b); 
+                bulbGlassMat.emissiveIntensity = 0.2;
+                bulbLight.intensity = 0;
+                eMat.color.setHex(0x64748b); 
+                eMat.emissive.setHex(0x000000);
+            }
+
+            document.getElementById('t-mat').innerText = mat.name;
+            document.getElementById('t-mat').style.color = "#" + mat.color.toString(16).padStart(6, '0');
+            
+            const elType = document.getElementById('t-type');
+            elType.innerText = mat.type;
+            elType.className = "data-value " + (mat.type === "CONDUCTOR" ? "text-flow" : "text-stop");
+            
+            const elFlow = document.getElementById('t-flow');
+            elFlow.innerText = mat.bulbOn ? "FLOWING" : "STOPPED";
+            elFlow.className = "data-value " + (mat.bulbOn ? "text-flow" : "text-stop");
+            
+            const elBulb = document.getElementById('t-bulb');
+            elBulb.innerText = mat.bulbOn ? "LIT (ON)" : "DARK (OFF)";
+            elBulb.className = "data-value " + (mat.bulbOn ? "text-flow" : "text-stop");
+            if(mat.bulbOn) elBulb.style.color = "#eab308";
+            else elBulb.style.color = "";
+        }
+
+        /** --- 5. TOUCH CONTROLS --- **/
+        let isDragging = false;
+        let previousTouchX = 0, previousTouchY = 0;
+
+        canvas.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            previousTouchX = e.touches[0].clientX;
+            previousTouchY = e.touches[0].clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const deltaX = e.touches[0].clientX - previousTouchX;
+            const deltaY = e.touches[0].clientY - previousTouchY;
+            targetRotY += deltaX * 0.01;
+            targetRotX += deltaY * 0.01;
+            previousTouchX = e.touches[0].clientX;
+            previousTouchY = e.touches[0].clientY;
+        });
+
+        canvas.addEventListener('touchend', () => { isDragging = false; });
+
+        /** --- 6. MEDIAPIPE TRACKING --- **/
+        const videoElement = document.getElementById('input_video');
+        const camStatus = document.getElementById('cam-status');
+        
+        let lastSwapTime = 0;
+        let targetRotX = Math.PI / 8, targetRotY = -Math.PI / 8;
+        let targetScale = 1.0, currentScale = 1.0;
+
+        async function startApp() {
+            document.getElementById('start-screen').style.display = 'none';
+
+            const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+            hands.setOptions({ 
+                maxNumHands: 2, 
+                modelComplexity: 0, 
+                minDetectionConfidence: 0.6, 
+                minTrackingConfidence: 0.6 
+            });
+            hands.onResults(onResults);
+
+            try {
+                const cameraFeed = new Camera(videoElement, {
+                    onFrame: async () => { await hands.send({ image: videoElement }); },
+                    facingMode: 'user', width: 480, height: 640
+                });
+                await cameraFeed.start();
+            } catch(e) {
+                alert("Camera access denied! You can still swipe to rotate the model.");
+            }
+        }
+
+        function onResults(results) {
+            if (results.multiHandLandmarks && results.multiHandedness.length > 0) {
+                camStatus.classList.add('cam-active'); 
+                
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const hand = results.multiHandLandmarks[i];
+                    const isRightHand = results.multiHandedness[i].label === "Left"; // Mirrored
+                    
+                    const wrist = hand[0];
+                    const thumb = hand[4];
+                    const index = hand[8];
+
+                    if (isRightHand) {
+                        // Move wrist to rotate (if not dragging with touch)
+                        if(!isDragging) {
+                            targetRotY = -(wrist.x - 0.5) * 2.5;  
+                            targetRotX = (wrist.y - 0.6) * 2.5; 
+                        }
+
+                        // Right Hand Pinch to Zoom
+                        const zoomDist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+                        // Map pinch distance (closed ~0.04 to open ~0.25) to scale (0.6x to 2.0x)
+                        let scale = (zoomDist - 0.04) * (2.0 - 0.6) / (0.25 - 0.04) + 0.6;
+                        targetScale = Math.max(0.6, Math.min(scale, 2.0));
+
+                    } else {
+                        // Left Hand Pinch to Swap Material
+                        const pinchDist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+                        if (pinchDist < 0.08 && (Date.now() - lastSwapTime > 1000)) {
+                            swapMaterial();
+                            lastSwapTime = Date.now();
+                        }
+                    }
+                }
+            } else {
+                camStatus.classList.remove('cam-active'); 
+                if(!isDragging) targetRotY -= 0.003; 
+            }
+        }
+
+        /** --- 7. ANIMATION LOOP --- **/
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const activeMat = materials[matIndex];
+
+            // Electron Flow
+            electrons.forEach((e) => {
+                if (activeMat.flowSpeed > 0) e.userData.angle -= activeMat.flowSpeed;
+                e.position.x = Math.cos(e.userData.angle) * wireRadius;
+                e.position.z = Math.sin(e.userData.angle) * wireRadius;
+            });
+
+            // Smooth Interpolation (Rotation & Zoom)
+            circuitGroup.rotation.y += (targetRotY - circuitGroup.rotation.y) * 0.1;
+            circuitGroup.rotation.x += (targetRotX - circuitGroup.rotation.x) * 0.1;
+            
+            currentScale += (targetScale - currentScale) * 0.1;
+            circuitGroup.scale.set(currentScale, currentScale, currentScale);
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            const isMob = window.innerWidth < 600;
+            camera.position.z = isMob ? 32 : 24;
+            circuitGroup.position.y = isMob ? 2 : 0;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
